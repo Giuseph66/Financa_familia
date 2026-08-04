@@ -2,8 +2,14 @@ class SupabaseConfig {
   const SupabaseConfig({required this.url, required this.anonKey});
 
   factory SupabaseConfig.fromEnvironment() {
-    const url = String.fromEnvironment('SUPABASE_URL');
-    const anonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
+    const url = String.fromEnvironment(
+      'SUPABASE_URL',
+      defaultValue: 'https://skkequjojwmivdmaqczb.supabase.co',
+    );
+    const anonKey = String.fromEnvironment(
+      'SUPABASE_ANON_KEY',
+      defaultValue: 'sb_publishable_sgAvB-4aV-ZCns0Xn7A4vQ_JrdR4pe2',
+    );
 
     return SupabaseConfig(url: url.trim(), anonKey: anonKey.trim());
   }

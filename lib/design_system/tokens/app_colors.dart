@@ -1,16 +1,25 @@
 import 'package:flutter/material.dart';
 
+/// Paleta do app.
+///
+/// O dark é neutro e quase preto. Os neutros não têm matiz azul: o azul
+/// aparece só no acento de marca, e é isso que faz ele ser lido como
+/// acento em vez de se dissolver no fundo.
+///
+/// Contrastes conferidos contra `canvas` (#0A0A0C):
+///   ink 18,0:1 · inkMuted 8,4:1 · inkFaint 5,2:1 · brandInk 9,3:1
+///   income 9,8:1 · expense 8,5:1 · warning 11,5:1
 @immutable
 class AppColors extends ThemeExtension<AppColors> {
   const AppColors({
     required this.canvas,
-    required this.canvasSunken,
     required this.surface,
     required this.surfaceRaised,
     required this.ink,
     required this.inkMuted,
     required this.inkFaint,
     required this.line,
+    required this.lineStrong,
     required this.brand,
     required this.brandInk,
     required this.brandSoft,
@@ -24,26 +33,36 @@ class AppColors extends ThemeExtension<AppColors> {
     required this.lilac,
   });
 
+  /// Fundo da aplicação. Quase preto, mas não #000: preto puro provoca
+  /// arrasto em OLED durante a rolagem e faz o texto claro vibrar.
   final Color canvas;
 
-  /// Mais escuro que [canvas]. Usado em controles que devem parecer
-  /// escavados na superfície em vez de apoiados sobre ela — campos de
-  /// entrada, principalmente. É o que permite a tela ter uma única
-  /// coisa elevada: a ação primária.
-  final Color canvasSunken;
-
+  /// Um degrau acima do canvas: conteúdo agrupado, campos, ilustração.
   final Color surface;
+
+  /// Dois degraus acima: modal, folha e seleção.
   final Color surfaceRaised;
+
   final Color ink;
   final Color inkMuted;
   final Color inkFaint;
+
+  /// Separador e borda decorativa. Não serve para delimitar controle.
   final Color line;
+
+  /// Contorno de controle interativo — campo, botão de contorno.
+  ///
+  /// Existe separado de [line] por causa do fundo quase preto: uma
+  /// borda discreta o bastante para separar seções fica invisível como
+  /// limite de campo. Esta atinge 3:1 contra o canvas, que é o mínimo
+  /// do WCAG para elemento de interface não textual.
+  final Color lineStrong;
+
+  /// Preenchimento de ação primária, foco e ícone. Exigência é 3:1.
   final Color brand;
 
-  /// Marca em texto sobre o canvas. Existe porque [brand] como texto
-  /// atinge apenas 3,37:1 no dark — reprova no WCAG AA. Use em link,
-  /// TextButton e rótulo em foco; [brand] fica para preenchimento,
-  /// borda e ícone, onde a exigência de contraste é 3:1.
+  /// Marca em texto. Existe porque [brand] como texto não alcança 4,5:1.
+  /// Use em link, TextButton e rótulo em foco.
   final Color brandInk;
 
   final Color brandSoft;
@@ -58,19 +77,19 @@ class AppColors extends ThemeExtension<AppColors> {
 
   static const light = AppColors(
     canvas: Color(0xFFF5F4EF),
-    canvasSunken: Color(0xFFEAE8E0),
     surface: Color(0xFFFCFBF8),
     surfaceRaised: Color(0xFFFFFFFF),
     ink: Color(0xFF193129),
     inkMuted: Color(0xFF65716B),
-    inkFaint: Color(0xFF99A39D),
+    inkFaint: Color(0xFF6E7873),
     line: Color(0xFFE4E7E1),
+    lineStrong: Color(0xFF8C8F88),
     brand: Color(0xFF23835F),
-    brandInk: Color(0xFF1B6B4C), // 5,86:1 sobre canvas claro
+    brandInk: Color(0xFF1B6B4C),
     brandSoft: Color(0xFFDCEFE5),
     income: Color(0xFF23835F),
     incomeSoft: Color(0xFFE1F3E9),
-    expense: Color(0xFFD96755),
+    expense: Color(0xFFC4402C),
     expenseSoft: Color(0xFFFBE6DF),
     warning: Color(0xFFB87922),
     warningSoft: Color(0xFFFFF0D5),
@@ -79,23 +98,25 @@ class AppColors extends ThemeExtension<AppColors> {
   );
 
   static const dark = AppColors(
-    canvas: Color(0xFF111722),
-    canvasSunken: Color(0xFF080D15),
-    surface: Color(0xFF18212E),
-    surfaceRaised: Color(0xFF222D3D),
-    ink: Color(0xFFF2F5FA),
-    inkMuted: Color(0xFFB4C0CF),
-    inkFaint: Color(0xFF8E9CAF),
-    line: Color(0xFF3A475B),
+    canvas: Color(0xFF0A0A0C),
+    surface: Color(0xFF131316),
+    surfaceRaised: Color(0xFF1C1C21),
+    ink: Color(0xFFF4F4F6),
+    inkMuted: Color(0xFFA8A8B3),
+    inkFaint: Color(0xFF82828E),
+    line: Color(0xFF2C2C33),
+    lineStrong: Color(0xFF5C5C66),
+    // Mantido: com `ink` por cima dá 4,85:1, e clarear o azul para ele
+    // saltar mais do preto derrubaria o rótulo do botão abaixo de 4,5.
     brand: Color(0xFF416F96),
-    brandInk: Color(0xFF8FB6D8), // 8,42:1 sobre canvas escuro
-    brandSoft: Color(0xFF22354A),
+    brandInk: Color(0xFF8FB6D8),
+    brandSoft: Color(0xFF16202B),
     income: Color(0xFF68C991),
-    incomeSoft: Color(0xFF1F3F30),
+    incomeSoft: Color(0xFF10241A),
     expense: Color(0xFFF28E86),
-    expenseSoft: Color(0xFF4D2B30),
+    expenseSoft: Color(0xFF2A1614),
     warning: Color(0xFFF2BD67),
-    warningSoft: Color(0xFF49371D),
+    warningSoft: Color(0xFF2A2113),
     coral: Color(0xFFD7A55D),
     lilac: Color(0xFFA6B8D1),
   );
@@ -103,13 +124,13 @@ class AppColors extends ThemeExtension<AppColors> {
   @override
   AppColors copyWith({
     Color? canvas,
-    Color? canvasSunken,
     Color? surface,
     Color? surfaceRaised,
     Color? ink,
     Color? inkMuted,
     Color? inkFaint,
     Color? line,
+    Color? lineStrong,
     Color? brand,
     Color? brandInk,
     Color? brandSoft,
@@ -124,13 +145,13 @@ class AppColors extends ThemeExtension<AppColors> {
   }) {
     return AppColors(
       canvas: canvas ?? this.canvas,
-      canvasSunken: canvasSunken ?? this.canvasSunken,
       surface: surface ?? this.surface,
       surfaceRaised: surfaceRaised ?? this.surfaceRaised,
       ink: ink ?? this.ink,
       inkMuted: inkMuted ?? this.inkMuted,
       inkFaint: inkFaint ?? this.inkFaint,
       line: line ?? this.line,
+      lineStrong: lineStrong ?? this.lineStrong,
       brand: brand ?? this.brand,
       brandInk: brandInk ?? this.brandInk,
       brandSoft: brandSoft ?? this.brandSoft,
@@ -150,13 +171,13 @@ class AppColors extends ThemeExtension<AppColors> {
     if (other is! AppColors) return this;
     return AppColors(
       canvas: Color.lerp(canvas, other.canvas, t)!,
-      canvasSunken: Color.lerp(canvasSunken, other.canvasSunken, t)!,
       surface: Color.lerp(surface, other.surface, t)!,
       surfaceRaised: Color.lerp(surfaceRaised, other.surfaceRaised, t)!,
       ink: Color.lerp(ink, other.ink, t)!,
       inkMuted: Color.lerp(inkMuted, other.inkMuted, t)!,
       inkFaint: Color.lerp(inkFaint, other.inkFaint, t)!,
       line: Color.lerp(line, other.line, t)!,
+      lineStrong: Color.lerp(lineStrong, other.lineStrong, t)!,
       brand: Color.lerp(brand, other.brand, t)!,
       brandInk: Color.lerp(brandInk, other.brandInk, t)!,
       brandSoft: Color.lerp(brandSoft, other.brandSoft, t)!,

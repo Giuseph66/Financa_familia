@@ -43,7 +43,10 @@ class AuthIllustration extends StatelessWidget {
                     width: 222,
                     height: 176,
                     decoration: BoxDecoration(
-                      color: colors.surface,
+                      // surfaceRaised e não surface: contra o canvas
+                      // quase preto, um degrau só não sustenta a
+                      // mancha e a cena fica flutuando solta.
+                      color: colors.surfaceRaised,
                       borderRadius: const BorderRadius.all(
                         Radius.elliptical(118, 96),
                       ),
