@@ -758,44 +758,48 @@ class _MoreTabState extends State<_MoreTab> {
   }
 
   Future<void> _redeem() async {
-    final controller = TextEditingController();
+    if (!mounted) return;
+    var draftCode = '';
+    final parentContext = context;
     String? code;
     try {
       code = await showDialog<String>(
-        context: context,
-        builder: (context) => AlertDialog(
+        context: parentContext,
+        builder: (dialogContext) => AlertDialog(
           title: const Text('Entrar em uma Casa'),
           content: TextField(
-            controller: controller,
             autofocus: true,
             textCapitalization: TextCapitalization.characters,
+            onChanged: (value) => draftCode = value,
             decoration: const InputDecoration(labelText: 'Código do convite'),
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.of(dialogContext).pop(),
               child: const Text('Cancelar'),
             ),
             FilledButton(
-              onPressed: () => Navigator.pop(context, controller.text),
+              onPressed: () => Navigator.of(dialogContext).pop(draftCode),
               child: const Text('Entrar'),
             ),
           ],
         ),
       );
     } catch (_) {
+      if (!mounted) return;
       _showMessage('Não foi possível abrir o convite.');
       return;
-    } finally {
-      controller.dispose();
     }
-    if (code == null || code.trim().isEmpty) return;
+    if (!mounted || code == null || code.trim().isEmpty) return;
+
     try {
       await widget.repository.redeemInvite(code);
+      if (!mounted) return;
       await widget.onChanged();
       if (!mounted) return;
       _showMessage('Você entrou na Casa.');
     } catch (_) {
+      if (!mounted) return;
       _showMessage('Não foi possível usar esse convite.');
     }
   }

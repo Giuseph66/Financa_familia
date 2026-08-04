@@ -75,8 +75,10 @@ class _LedgerSigil extends StatelessWidget {
     final stroke = extent * 0.13;
     final gap = extent * 0.25;
 
+    // Largura = traço + folga + a entrada mais longa. Fixar um valor
+    // menor que a soma real estoura a Row por fração de pixel.
     return SizedBox(
-      width: extent * 0.95,
+      width: extent * (0.13 + 0.25 + 0.58),
       height: extent,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,

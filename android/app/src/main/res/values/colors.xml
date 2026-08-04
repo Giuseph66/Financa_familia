@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- canvas do app (#0A0A0C). Fundo do ícone adaptativo, desenhado
+         como camada separada para o sistema poder recortar e parallaxar. -->
+    <color name="ic_launcher_background">#0A0A0C</color>
+
+    <!-- Mesma cor, papel diferente: janela durante a abertura.
+         Fixa, não segue o modo claro/escuro do sistema — o app é
+         dark-only, então em celular no modo claro o padrão do Flutter
+         daria um flash branco antes do primeiro frame. -->
+    <color name="launch_background">#0A0A0C</color>
+</resources>
