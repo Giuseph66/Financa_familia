@@ -108,13 +108,16 @@ ThemeData buildAppTheme(Brightness brightness) {
       prefixIconColor: colors.inkFaint,
       suffixIconColor: colors.inkFaint,
       errorStyle: TextStyle(color: colors.expense, fontSize: 12, height: 1.3),
+      // Borda discreta de propósito: quem define o campo é o
+      // preenchimento afundado, não o contorno. Borda forte devolveria
+      // a leitura de "caixa apoiada".
       border: OutlineInputBorder(
         borderRadius: AppRadii.medium,
-        borderSide: BorderSide(color: colors.line),
+        borderSide: BorderSide(color: colors.line.withValues(alpha: 0.6)),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: AppRadii.medium,
-        borderSide: BorderSide(color: colors.line),
+        borderSide: BorderSide(color: colors.line.withValues(alpha: 0.6)),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: AppRadii.medium,

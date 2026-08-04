@@ -1,22 +1,20 @@
+import 'package:financa/design_system/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 
-/// Campo com rótulo persistente acima da caixa, em caixa alta.
+/// Campo com rótulo fixo acima da caixa.
 ///
 /// Não usa o rótulo flutuante do Material de propósito. O rótulo
 /// flutuante encolhe e se sobrepõe à borda quando o campo recebe
 /// conteúdo, e some do alcance de quem usa ampliação de tela — quem
 /// mais precisa dele é quem primeiro o perde. Aqui o rótulo fica onde
 /// está, no mesmo tamanho, o tempo todo.
-///
-/// O preenchimento e a borda vêm do `inputDecorationTheme`, então o
-/// campo é escavado no canvas em vez de apoiado sobre ele.
 class AppFormField extends StatelessWidget {
   const AppFormField({
     required this.label,
     required this.controller,
     super.key,
     this.hint,
-    this.trailing,
+    this.prefixIcon,
     this.suffixIcon,
     this.keyboardType,
     this.textInputAction,
@@ -31,12 +29,7 @@ class AppFormField extends StatelessWidget {
   final String label;
   final TextEditingController controller;
   final String? hint;
-
-  /// Ação secundária alinhada à direita, na mesma linha do rótulo.
-  /// Usada para "Esqueci a senha", que pertence ao campo de senha e
-  /// não a uma linha solta abaixo do formulário.
-  final Widget? trailing;
-
+  final IconData? prefixIcon;
   final Widget? suffixIcon;
   final TextInputType? keyboardType;
   final TextInputAction? textInputAction;
@@ -49,21 +42,19 @@ class AppFormField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final colors = context.colors;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                label.toUpperCase(),
-                style: theme.textTheme.labelSmall,
-              ),
-            ),
-            ?trailing,
-          ],
+        Text(
+          label,
+          style: TextStyle(
+            color: colors.ink,
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.1,
+          ),
         ),
         const SizedBox(height: 8),
         TextFormField(
@@ -77,7 +68,7 @@ class AppFormField extends StatelessWidget {
           validator: validator,
           onFieldSubmitted: onFieldSubmitted,
           style: TextStyle(
-            color: theme.colorScheme.onSurface,
+            color: colors.ink,
             // 16px é o piso: abaixo disso o Safari no iOS dá zoom
             // automático ao focar o campo e desloca o layout inteiro.
             fontSize: 16,
@@ -85,6 +76,13 @@ class AppFormField extends StatelessWidget {
           ),
           decoration: InputDecoration(
             hintText: hint,
+            prefixIcon: prefixIcon == null
+                ? null
+                : Padding(
+                    padding: const EdgeInsets.only(left: 16, right: 12),
+                    child: Icon(prefixIcon, size: 20),
+                  ),
+            prefixIconConstraints: const BoxConstraints(minWidth: 0),
             suffixIcon: suffixIcon,
             // O rótulo já está acima; nada deve flutuar para dentro.
             floatingLabelBehavior: FloatingLabelBehavior.never,

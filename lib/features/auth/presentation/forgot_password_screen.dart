@@ -1,3 +1,5 @@
+import 'package:financa/design_system/components/app_form_field.dart';
+import 'package:financa/design_system/components/auth_layout.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -17,6 +19,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final _email = TextEditingController();
   var _loading = false;
   String? _message;
+  var _messageIsError = false;
 
   @override
   void dispose() {
@@ -27,7 +30,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   Future<void> _send() async {
     final email = _email.text.trim();
     if (!email.contains('@')) {
-      setState(() => _message = 'Informe um e-mail válido.');
+      setState(() {
+        _message = 'Informe um e-mail válido.';
+        _messageIsError = true;
+      });
       return;
     }
     setState(() {
@@ -40,10 +46,21 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         redirectTo: kIsWeb ? null : _mobileAuthCallback,
       );
       if (mounted) {
-        setState(() => _message = 'Enviamos as instruções para seu e-mail.');
+        setState(() {
+          // Confirmação neutra de propósito: dizer que o e-mail existe
+          // ou não permitiria enumerar quem tem conta no app.
+          _message =
+              'Se o e-mail estiver cadastrado, as instruções chegam em instantes.';
+          _messageIsError = false;
+        });
       }
     } on AuthException catch (error) {
-      if (mounted) setState(() => _message = error.message);
+      if (mounted) {
+        setState(() {
+          _message = error.message;
+          _messageIsError = true;
+        });
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -67,36 +84,37 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  'Recuperar acesso',
-                  style: Theme.of(context).textTheme.headlineMedium,
+                const AuthHeadline(
+                  title: 'Recuperar acesso',
+                  subtitle:
+                      'Informe seu e-mail para receber um link de redefinição.',
                 ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Informe seu e-mail para receber um link de redefinição.',
-                ),
-                const SizedBox(height: 24),
-                TextField(
+                const SizedBox(height: 26),
+                AppFormField(
+                  label: 'E-mail',
                   controller: _email,
+                  hint: 'seu@email.com',
+                  prefixIcon: Icons.mail_outline_rounded,
+                  enabled: !_loading,
                   keyboardType: TextInputType.emailAddress,
+                  textInputAction: TextInputAction.done,
                   autofillHints: const [AutofillHints.email],
-                  decoration: const InputDecoration(
-                    labelText: 'E-mail',
-                    prefixIcon: Icon(Icons.mail_outline_rounded),
-                  ),
-                  onSubmitted: (_) => _loading ? null : _send(),
+                  onFieldSubmitted: (_) => _loading ? null : _send(),
                 ),
                 if (_message != null) ...[
-                  const SizedBox(height: 12),
-                  Semantics(liveRegion: true, child: Text(_message!)),
+                  const SizedBox(height: 16),
+                  AuthFeedbackBanner(
+                    message: _message!,
+                    isError: _messageIsError,
+                  ),
                 ],
-                const SizedBox(height: 20),
+                const SizedBox(height: 24),
                 FilledButton(
                   onPressed: _loading ? null : _send,
                   child: _loading
                       ? const SizedBox.square(
-                          dimension: 22,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                          dimension: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2.5),
                         )
                       : const Text('Enviar instruções'),
                 ),
@@ -180,70 +198,50 @@ class _UpdatePasswordScreenState extends State<UpdatePasswordScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(
-                    'Crie uma nova senha',
-                    style: Theme.of(context).textTheme.headlineMedium,
+                  const AuthHeadline(
+                    title: 'Crie uma nova senha',
+                    subtitle:
+                        'Escolha uma senha com pelo menos 8 caracteres para proteger sua conta.',
                   ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Escolha uma senha com pelo menos 8 caracteres para proteger sua conta.',
-                  ),
-                  const SizedBox(height: 24),
-                  TextFormField(
+                  const SizedBox(height: 26),
+                  AppFormField(
+                    label: 'Nova senha',
                     controller: _password,
+                    hint: 'Mínimo de 8 caracteres',
+                    prefixIcon: Icons.lock_outline_rounded,
                     enabled: !_loading,
                     obscureText: _obscurePassword,
                     autofocus: true,
                     textInputAction: TextInputAction.next,
                     autofillHints: const [AutofillHints.newPassword],
-                    decoration: InputDecoration(
-                      labelText: 'Nova senha',
-                      prefixIcon: const Icon(Icons.lock_outline_rounded),
-                      suffixIcon: IconButton(
-                        onPressed: _loading
-                            ? null
-                            : () => setState(
-                                () => _obscurePassword = !_obscurePassword,
-                              ),
-                        icon: Icon(
-                          _obscurePassword
-                              ? Icons.visibility_outlined
-                              : Icons.visibility_off_outlined,
-                        ),
-                        tooltip: _obscurePassword
-                            ? 'Mostrar senha'
-                            : 'Ocultar senha',
-                      ),
-                    ),
                     validator: _validateNewPassword,
+                    suffixIcon: IconButton(
+                      onPressed: _loading
+                          ? null
+                          : () => setState(
+                              () => _obscurePassword = !_obscurePassword,
+                            ),
+                      icon: Icon(
+                        _obscurePassword
+                            ? Icons.visibility_outlined
+                            : Icons.visibility_off_outlined,
+                        size: 20,
+                      ),
+                      tooltip: _obscurePassword
+                          ? 'Mostrar senha'
+                          : 'Ocultar senha',
+                    ),
                   ),
-                  const SizedBox(height: 14),
-                  TextFormField(
+                  const SizedBox(height: 18),
+                  AppFormField(
+                    label: 'Confirmar nova senha',
                     controller: _confirmation,
+                    hint: 'Repita a senha',
+                    prefixIcon: Icons.lock_outline_rounded,
                     enabled: !_loading,
                     obscureText: _obscureConfirmation,
                     textInputAction: TextInputAction.done,
                     autofillHints: const [AutofillHints.newPassword],
-                    decoration: InputDecoration(
-                      labelText: 'Confirmar nova senha',
-                      prefixIcon: const Icon(Icons.lock_outline_rounded),
-                      suffixIcon: IconButton(
-                        onPressed: _loading
-                            ? null
-                            : () => setState(
-                                () => _obscureConfirmation =
-                                    !_obscureConfirmation,
-                              ),
-                        icon: Icon(
-                          _obscureConfirmation
-                              ? Icons.visibility_outlined
-                              : Icons.visibility_off_outlined,
-                        ),
-                        tooltip: _obscureConfirmation
-                            ? 'Mostrar senha'
-                            : 'Ocultar senha',
-                      ),
-                    ),
                     validator: (value) {
                       if (value != _password.text) {
                         return 'As senhas precisam ser iguais.';
@@ -251,18 +249,35 @@ class _UpdatePasswordScreenState extends State<UpdatePasswordScreen> {
                       return null;
                     },
                     onFieldSubmitted: (_) => _updatePassword(),
+                    suffixIcon: IconButton(
+                      onPressed: _loading
+                          ? null
+                          : () => setState(
+                              () =>
+                                  _obscureConfirmation = !_obscureConfirmation,
+                            ),
+                      icon: Icon(
+                        _obscureConfirmation
+                            ? Icons.visibility_outlined
+                            : Icons.visibility_off_outlined,
+                        size: 20,
+                      ),
+                      tooltip: _obscureConfirmation
+                          ? 'Mostrar senha'
+                          : 'Ocultar senha',
+                    ),
                   ),
                   if (_message != null) ...[
-                    const SizedBox(height: 12),
-                    Semantics(liveRegion: true, child: Text(_message!)),
+                    const SizedBox(height: 16),
+                    AuthFeedbackBanner(message: _message!, isError: true),
                   ],
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 24),
                   FilledButton(
                     onPressed: _loading ? null : _updatePassword,
                     child: _loading
                         ? const SizedBox.square(
-                            dimension: 22,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            dimension: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2.5),
                           )
                         : const Text('Salvar nova senha'),
                   ),

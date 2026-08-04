@@ -80,7 +80,7 @@ class AppColors extends ThemeExtension<AppColors> {
 
   static const dark = AppColors(
     canvas: Color(0xFF111722),
-    canvasSunken: Color(0xFF0B111A),
+    canvasSunken: Color(0xFF080D15),
     surface: Color(0xFF18212E),
     surfaceRaised: Color(0xFF222D3D),
     ink: Color(0xFFF2F5FA),
