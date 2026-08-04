@@ -46,6 +46,7 @@ backup/
 .playwright-cli/
 .playwright-mcp/
 output/playwright/
+.e2e/
 
 # Symbolication related
 app.*.symbols

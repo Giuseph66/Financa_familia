@@ -1,5 +1,6 @@
-import 'package:financa/design_system/tokens/app_colors.dart';
 import 'package:financa/design_system/theme/app_theme.dart';
+import 'package:financa/design_system/tokens/radii.dart';
+import 'package:financa/design_system/tokens/spacing.dart';
 import 'package:flutter/material.dart';
 
 class AppScaffold extends StatelessWidget {
@@ -8,6 +9,12 @@ class AppScaffold extends StatelessWidget {
     required this.selectedIndex,
     required this.onSelected,
     required this.onQuickAdd,
+    required this.canQuickAdd,
+    required this.profileName,
+    required this.householdName,
+    required this.onHouseholdTap,
+    required this.onLogout,
+    this.syncLabel = 'Conectado',
     super.key,
   });
 
@@ -15,132 +22,182 @@ class AppScaffold extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onSelected;
   final VoidCallback onQuickAdd;
+  final bool canQuickAdd;
+  final String profileName;
+  final String householdName;
+  final VoidCallback onHouseholdTap;
+  final VoidCallback onLogout;
+  final String syncLabel;
 
   static const _items = [
-    (Icons.grid_view_rounded, 'Início'),
+    (Icons.home_rounded, 'Início'),
     (Icons.receipt_long_rounded, 'Extrato'),
-    (Icons.insights_rounded, 'Relatórios'),
-    (Icons.more_horiz_rounded, 'Mais'),
+    (Icons.bar_chart_rounded, 'Relatórios'),
+    (Icons.tune_rounded, 'Mais'),
   ];
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth >= 960) return _desktopLayout(context);
-        return _mobileLayout(context);
-      },
+      builder: (context, constraints) =>
+          constraints.maxWidth >= 920 ? _desktop(context) : _mobile(context),
     );
   }
 
-  Widget _desktopLayout(BuildContext context) {
+  Widget _desktop(BuildContext context) {
     return Scaffold(
       body: Row(
         children: [
-          Container(
-            width: 232,
-            decoration: BoxDecoration(
-              color: context.colors.surface,
-              border: Border(right: BorderSide(color: context.colors.line)),
-            ),
+          Material(
+            color: context.colors.surface,
             child: SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 24, 16, 20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _BrandMark(colors: context.colors),
-                    const SizedBox(height: 44),
-                    for (var i = 0; i < _items.length; i++) ...[
-                      _NavItem(
-                        icon: _items[i].$1,
-                        label: _items[i].$2,
-                        selected: selectedIndex == i,
-                        onTap: () => onSelected(i),
+              child: SizedBox(
+                width: 248,
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.lg),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const _Brand(),
+                      const SizedBox(height: AppSpacing.xxl),
+                      _WorkspaceButton(
+                        name: householdName,
+                        onTap: onHouseholdTap,
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: AppSpacing.xl),
+                      for (var index = 0; index < _items.length; index++)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                          child: _RailItem(
+                            icon: _items[index].$1,
+                            label: _items[index].$2,
+                            selected: selectedIndex == index,
+                            onTap: () => onSelected(index),
+                          ),
+                        ),
+                      if (canQuickAdd) ...[
+                        const SizedBox(height: AppSpacing.md),
+                        FilledButton.icon(
+                          onPressed: onQuickAdd,
+                          icon: const Icon(Icons.add_rounded),
+                          label: const Text('Novo lançamento'),
+                        ),
+                      ],
+                      const Spacer(),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.cloud_done_outlined,
+                            size: 18,
+                            color: context.colors.income,
+                          ),
+                          const SizedBox(width: AppSpacing.sm),
+                          Expanded(
+                            child: Text(
+                              syncLabel,
+                              style: Theme.of(context).textTheme.labelMedium,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: AppSpacing.lg),
+                      _Profile(name: profileName, onLogout: onLogout),
                     ],
-                    const Spacer(),
-                    _SyncIndicator(colors: context.colors),
-                    const SizedBox(height: 16),
-                    const _ProfileTile(),
-                  ],
+                  ),
                 ),
               ),
             ),
           ),
+          VerticalDivider(width: 1, color: context.colors.line),
           Expanded(child: body),
         ],
       ),
     );
   }
 
-  Widget _mobileLayout(BuildContext context) {
+  Widget _mobile(BuildContext context) {
     return Scaffold(
-      body: SafeArea(child: body),
-      floatingActionButton: FloatingActionButton(
-        onPressed: onQuickAdd,
-        tooltip: 'Nova entrada',
-        backgroundColor: context.colors.brand,
-        foregroundColor: Colors.white,
-        child: const Icon(Icons.add_rounded, size: 28),
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-      bottomNavigationBar: BottomAppBar(
-        height: 72,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        color: context.colors.surface,
-        shape: const CircularNotchedRectangle(),
-        notchMargin: 8,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            for (var i = 0; i < _items.length; i++) ...[
-              if (i == 2) const SizedBox(width: 56),
-              _BottomNavItem(
-                icon: _items[i].$1,
-                label: _items[i].$2,
-                selected: selectedIndex == i,
-                onTap: () => onSelected(i),
-              ),
-            ],
-          ],
-        ),
+      body: SafeArea(bottom: false, child: body),
+      floatingActionButton: canQuickAdd
+          ? FloatingActionButton(
+              onPressed: onQuickAdd,
+              tooltip: 'Novo lançamento',
+              child: const Icon(Icons.add_rounded),
+            )
+          : null,
+      floatingActionButtonLocation: canQuickAdd
+          ? FloatingActionButtonLocation.centerDocked
+          : null,
+      bottomNavigationBar: NavigationBar(
+        height: 74,
+        selectedIndex: selectedIndex,
+        onDestinationSelected: onSelected,
+        destinations: [
+          for (final item in _items)
+            NavigationDestination(icon: Icon(item.$1), label: item.$2),
+        ],
       ),
     );
   }
 }
 
-class _BrandMark extends StatelessWidget {
-  const _BrandMark({required this.colors});
-  final AppColors colors;
-
+class _Brand extends StatelessWidget {
+  const _Brand();
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 34,
-          height: 34,
-          decoration: BoxDecoration(
-            color: colors.brand,
-            borderRadius: const BorderRadius.all(Radius.circular(11)),
+    return Semantics(
+      header: true,
+      child: Row(
+        children: [
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: context.colors.brand,
+              borderRadius: AppRadii.small,
+            ),
+            child: const SizedBox.square(
+              dimension: 40,
+              child: Icon(Icons.home_work_outlined, color: Colors.white),
+            ),
           ),
-          child: const Icon(
-            Icons.stacked_line_chart_rounded,
-            color: Colors.white,
-            size: 20,
-          ),
-        ),
-        const SizedBox(width: 10),
-        Text('Finança', style: Theme.of(context).textTheme.titleLarge),
-      ],
+          const SizedBox(width: AppSpacing.md),
+          Text('Finança', style: Theme.of(context).textTheme.titleLarge),
+        ],
+      ),
     );
   }
 }
 
-class _NavItem extends StatelessWidget {
-  const _NavItem({
+class _WorkspaceButton extends StatelessWidget {
+  const _WorkspaceButton({required this.name, required this.onTap});
+  final String name;
+  final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton(
+      onPressed: onTap,
+      style: OutlinedButton.styleFrom(
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.md,
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.cottage_outlined, size: 20),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+          ),
+          const Icon(Icons.unfold_more_rounded, size: 18),
+        ],
+      ),
+    );
+  }
+}
+
+class _RailItem extends StatelessWidget {
+  const _RailItem({
     required this.icon,
     required this.label,
     required this.selected,
@@ -150,144 +207,45 @@ class _NavItem extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
-
   @override
   Widget build(BuildContext context) {
     return Semantics(
       button: true,
       selected: selected,
-      label: label,
-      child: InkWell(
+      child: ListTile(
+        selected: selected,
         onTap: onTap,
-        borderRadius: const BorderRadius.all(Radius.circular(12)),
-        child: Container(
-          height: 48,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-            color: selected ? context.colors.brandSoft : Colors.transparent,
-            borderRadius: const BorderRadius.all(Radius.circular(12)),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                icon,
-                size: 20,
-                color: selected
-                    ? context.colors.brand
-                    : context.colors.inkMuted,
-              ),
-              const SizedBox(width: 12),
-              Text(
-                label,
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: selected
-                      ? context.colors.brand
-                      : context.colors.inkMuted,
-                ),
-              ),
-            ],
-          ),
-        ),
+        shape: const RoundedRectangleBorder(borderRadius: AppRadii.small),
+        leading: Icon(icon),
+        title: Text(label),
       ),
     );
   }
 }
 
-class _BottomNavItem extends StatelessWidget {
-  const _BottomNavItem({
-    required this.icon,
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-  final IconData icon;
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
+class _Profile extends StatelessWidget {
+  const _Profile({required this.name, required this.onLogout});
+  final String name;
+  final VoidCallback onLogout;
   @override
   Widget build(BuildContext context) {
-    return InkResponse(
-      onTap: onTap,
-      radius: 28,
-      child: SizedBox(
-        width: 56,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              size: 21,
-              color: selected ? context.colors.brand : context.colors.inkMuted,
-            ),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                color: selected
-                    ? context.colors.brand
-                    : context.colors.inkMuted,
-                fontSize: 10,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SyncIndicator extends StatelessWidget {
-  const _SyncIndicator({required this.colors});
-  final AppColors colors;
-
-  @override
-  Widget build(BuildContext context) {
+    final displayName = name.trim().isEmpty ? 'Você' : name.trim();
     return Row(
       children: [
-        Icon(Icons.cloud_done_rounded, size: 17, color: colors.brand),
-        const SizedBox(width: 8),
-        Text(
-          'Tudo salvo localmente',
-          style: Theme.of(context).textTheme.labelMedium,
-        ),
-      ],
-    );
-  }
-}
-
-class _ProfileTile extends StatelessWidget {
-  const _ProfileTile();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        CircleAvatar(
-          radius: 18,
-          backgroundColor: context.colors.brandSoft,
-          child: Text(
-            'J',
-            style: TextStyle(
-              color: context.colors.brand,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ),
-        const SizedBox(width: 10),
+        CircleAvatar(child: Text(displayName[0].toUpperCase())),
+        const SizedBox(width: AppSpacing.sm),
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Jesus', style: Theme.of(context).textTheme.labelLarge),
-              Text(
-                'Casa Neurelix',
-                style: Theme.of(context).textTheme.labelMedium,
-              ),
-            ],
+          child: Text(
+            displayName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ),
-        Icon(Icons.more_horiz_rounded, color: context.colors.inkFaint),
+        IconButton(
+          onPressed: onLogout,
+          tooltip: 'Sair',
+          icon: const Icon(Icons.logout_rounded),
+        ),
       ],
     );
   }

@@ -18,6 +18,17 @@
 	<string>financa</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>financa-auth-callback</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>financa</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleShortVersionString</key>
 	<string>$(FLUTTER_BUILD_NAME)</string>
 	<key>CFBundleSignature</key>
@@ -26,6 +37,10 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Use a câmera para adicionar comprovantes às suas finanças.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Escolha fotos da sua biblioteca para adicionar comprovantes.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

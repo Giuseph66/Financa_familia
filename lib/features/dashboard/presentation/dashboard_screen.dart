@@ -1,8 +1,14 @@
+import 'dart:async';
+
+import 'package:financa/data/financa_repository.dart';
 import 'package:financa/design_system/components/app_scaffold.dart';
 import 'package:financa/design_system/components/money_text.dart';
 import 'package:financa/design_system/theme/app_theme.dart';
+import 'package:financa/design_system/tokens/radii.dart';
+import 'package:financa/design_system/tokens/spacing.dart';
 import 'package:financa/features/quick_add/presentation/quick_add_sheet.dart';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -12,391 +18,922 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  var _selectedIndex = 0;
-  var _privacy = false;
-  final _transactions = <_TransactionData>[
-    _TransactionData(
-      'Mercado do Bairro',
-      'Alimentação',
-      Icons.shopping_basket_rounded,
-      18640,
-      false,
-      'Hoje, 09:42',
-    ),
-    _TransactionData(
-      'Oficina Central',
-      'Transporte',
-      Icons.directions_car_filled_rounded,
-      42000,
-      false,
-      'Ontem, 18:20',
-    ),
-    _TransactionData(
-      'Salário',
-      'Salário',
-      Icons.payments_rounded,
-      520000,
-      true,
-      '01 ago, 08:00',
-    ),
-    _TransactionData(
-      'Netflix',
-      'Assinaturas',
-      Icons.play_circle_filled_rounded,
-      3990,
-      false,
-      '31 jul, 12:05',
-    ),
-  ];
+  final _repository = FinancaRepository();
+  FinancaSnapshot? _snapshot;
+  Object? _error;
+  var _loading = true;
+  var _tab = 0;
+  var _month = DateTime(DateTime.now().year, DateTime.now().month);
+  String? _memberScope;
+  var _privateValues = false;
 
-  void _openQuickAdd() {
-    showModalBottomSheet<void>(
+  @override
+  void initState() {
+    super.initState();
+    _reload();
+  }
+
+  Future<void> _reload({String? householdId}) async {
+    if (!mounted) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final snapshot = await _repository.load(householdId: householdId);
+      if (!mounted) return;
+      setState(() {
+        _snapshot = snapshot;
+        _loading = false;
+        _memberScope = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = error;
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _selectHousehold() async {
+    final snapshot = _snapshot;
+    if (snapshot == null) return;
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: RadioGroup<String>(
+          groupValue: snapshot.selectedHousehold.id,
+          onChanged: (value) => Navigator.pop(context, value),
+          child: ListView(
+            shrinkWrap: true,
+            padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(AppSpacing.lg),
+                child: Text(
+                  'Trocar Casa',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+              ),
+              for (final household in snapshot.households)
+                RadioListTile<String>(
+                  value: household.id,
+                  title: Text(household.name),
+                  subtitle: Text(
+                    household.id == snapshot.selectedHousehold.id
+                        ? 'Casa atual'
+                        : 'Abrir este workspace',
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (selected != null && selected != snapshot.selectedHousehold.id) {
+      await _reload(householdId: selected);
+    }
+  }
+
+  Future<void> _selectScope() async {
+    final snapshot = _snapshot;
+    if (snapshot == null) return;
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: RadioGroup<String>(
+          groupValue: _memberScope ?? 'all',
+          onChanged: (value) => Navigator.pop(context, value),
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              const ListTile(
+                title: Text('Visão da Casa'),
+                subtitle: Text(
+                  'Filtre sem alterar quem pode ver ou editar os dados.',
+                ),
+              ),
+              RadioListTile<String>(
+                value: 'all',
+                title: const Text('Casa inteira'),
+                secondary: const Icon(Icons.groups_2_outlined),
+              ),
+              for (final member in snapshot.memberships)
+                RadioListTile<String>(
+                  value: member.id,
+                  title: Text(_displayName(member.displayName)),
+                  subtitle: Text(_roleLabel(member.role)),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (selected != null) {
+      if (!mounted) return;
+      setState(() => _memberScope = selected == 'all' ? null : selected);
+    }
+  }
+
+  Future<void> _openQuickAdd() async {
+    final snapshot = _snapshot;
+    if (snapshot == null || !_canQuickAdd(snapshot)) return;
+    if (snapshot.accounts.isEmpty) {
+      _message('Crie uma conta antes de lançar.');
+      return;
+    }
+    final currentMember = _memberForCurrentUser(snapshot);
+    final isTeen = currentMember?.role == 'teen';
+    await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (context) => QuickAddSheet(
-        onSaved: (cents, category) {
-          setState(() {
-            _transactions.insert(
-              0,
-              _TransactionData(
-                'Novo lançamento',
-                category,
-                Icons.receipt_long_rounded,
-                cents,
-                false,
-                'Agora',
-              ),
-            );
-          });
-          ScaffoldMessenger.of(this.context).showSnackBar(
-            const SnackBar(content: Text('Lançamento salvo localmente')),
-          );
-        },
+        accounts: snapshot.accounts,
+        categories: snapshot.categories,
+        members: isTeen && currentMember != null
+            ? [currentMember]
+            : snapshot.memberships,
+        onSave: _saveDraft,
+        onCreateCategory: _canCreateCategory(snapshot) ? _createCategory : null,
       ),
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return AppScaffold(
-      selectedIndex: _selectedIndex,
-      onSelected: (index) => setState(() => _selectedIndex = index),
-      onQuickAdd: _openQuickAdd,
-      body: _selectedIndex == 0
-          ? _DashboardContent(
-              privacy: _privacy,
-              onPrivacyChanged: () => setState(() => _privacy = !_privacy),
-              transactions: _transactions,
-              onQuickAdd: _openQuickAdd,
-            )
-          : _PlaceholderContent(
-              index: _selectedIndex,
-              onQuickAdd: _openQuickAdd,
-            ),
-    );
+  Future<FinanceCategory?> _createCategory(
+    String name,
+    String? parentId,
+    String kind,
+  ) async {
+    final snapshot = _snapshot;
+    if (snapshot == null || !_canCreateCategory(snapshot)) return null;
+    try {
+      return await _repository.createCategory(
+        householdId: snapshot.selectedHousehold.id,
+        name: name,
+        parentId: parentId,
+        kind: kind,
+      );
+    } catch (_) {
+      throw StateError('Não foi possível criar a categoria.');
+    }
   }
-}
 
-class _DashboardContent extends StatelessWidget {
-  const _DashboardContent({
-    required this.privacy,
-    required this.onPrivacyChanged,
-    required this.transactions,
-    required this.onQuickAdd,
-  });
-  final bool privacy;
-  final VoidCallback onPrivacyChanged;
-  final List<_TransactionData> transactions;
-  final VoidCallback onQuickAdd;
+  Future<void> _saveDraft(QuickAddDraft draft) async {
+    final snapshot = _snapshot;
+    if (snapshot == null) {
+      throw StateError('Não foi possível salvar: a Casa não está disponível.');
+    }
+    final currentMember = _memberForCurrentUser(snapshot);
+    if (!_canQuickAdd(snapshot) || currentMember == null) {
+      throw StateError('Seu papel não permite criar lançamentos.');
+    }
+    final memberId = draft.memberId;
+    if (memberId == null) {
+      throw StateError('Selecione um membro antes de salvar.');
+    }
+    if (currentMember.role == 'teen' && memberId != currentMember.id) {
+      throw StateError('Você só pode lançar em seu próprio nome.');
+    }
+    if (currentMember.role == 'teen' && draft.receiptBytes != null) {
+      throw StateError('Seu papel não permite adicionar comprovantes.');
+    }
+    final toAccountId = draft.toAccountId;
+    if (draft.kind == 'transfer' && toAccountId == null) {
+      throw StateError('Selecione a conta de destino antes de salvar.');
+    }
 
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final wide = constraints.maxWidth >= 760;
-        final maxWidth = wide ? 1180.0 : double.infinity;
-        return SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(
-            wide ? 42 : 20,
-            wide ? 32 : 20,
-            wide ? 42 : 20,
-            wide ? 42 : 28,
-          ),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: maxWidth),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _Header(onQuickAdd: onQuickAdd),
-                  const SizedBox(height: 28),
-                  _MonthNavigator(),
-                  const SizedBox(height: 16),
-                  _HeroBalance(
-                    privacy: privacy,
-                    onPrivacyChanged: onPrivacyChanged,
-                  ),
-                  const SizedBox(height: 16),
-                  _StatsRow(privacy: privacy),
-                  const SizedBox(height: 28),
-                  if (wide)
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(child: _ComparisonSection(privacy: privacy)),
-                        const SizedBox(width: 18),
-                        Expanded(child: _BudgetSection(privacy: privacy)),
-                      ],
-                    )
-                  else ...[
-                    _ComparisonSection(privacy: privacy),
-                    const SizedBox(height: 18),
-                    _BudgetSection(privacy: privacy),
-                  ],
-                  const SizedBox(height: 28),
-                  if (wide)
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(child: _UpcomingSection(privacy: privacy)),
-                        const SizedBox(width: 18),
-                        Expanded(child: _AccountsSection(privacy: privacy)),
-                      ],
-                    )
-                  else ...[
-                    _UpcomingSection(privacy: privacy),
-                    const SizedBox(height: 18),
-                    _AccountsSection(privacy: privacy),
-                  ],
-                  const SizedBox(height: 28),
-                  _RecentSection(privacy: privacy, transactions: transactions),
-                ],
-              ),
-            ),
-          ),
+    try {
+      String? receiptId;
+      final receiptBytes = draft.receiptBytes;
+      if (receiptBytes != null) {
+        final receipt = await _repository.uploadReceipt(
+          householdId: snapshot.selectedHousehold.id,
+          bytes: receiptBytes,
+          mimeType: draft.mimeType ?? 'image/jpeg',
         );
-      },
+        receiptId = receipt.id;
+      }
+      if (draft.kind == 'transfer') {
+        final transferAccountId = draft.toAccountId;
+        if (transferAccountId == null) {
+          throw StateError('Selecione a conta de destino antes de salvar.');
+        }
+        await _repository.createTransfer(
+          householdId: snapshot.selectedHousehold.id,
+          fromAccountId: draft.accountId,
+          toAccountId: transferAccountId,
+          memberId: memberId,
+          amountCents: draft.amountCents,
+          description: draft.description,
+        );
+      } else {
+        await _repository.createTransaction(
+          householdId: snapshot.selectedHousehold.id,
+          accountId: draft.accountId,
+          memberId: memberId,
+          amountCents: draft.amountCents,
+          kind: draft.kind,
+          categoryId: draft.categoryId,
+          description: draft.description,
+          receiptId: receiptId,
+        );
+      }
+    } catch (error) {
+      if (error is StateError) rethrow;
+      throw StateError('Não foi possível salvar o lançamento.');
+    }
+    await _reload(householdId: snapshot.selectedHousehold.id);
+    _message(
+      'Lançamento salvo.',
+      action: 'Ver extrato',
+      onAction: () => _selectTab(1),
+    );
+  }
+
+  void _selectTab(int value) {
+    if (!mounted) return;
+    setState(() => _tab = value);
+  }
+
+  void _changeMonth(int offset) {
+    if (!mounted) return;
+    setState(() => _month = DateTime(_month.year, _month.month + offset));
+  }
+
+  void _togglePrivacy() {
+    if (!mounted) return;
+    setState(() => _privateValues = !_privateValues);
+  }
+
+  Future<void> _deleteTransaction(FinanceTransaction transaction) async {
+    try {
+      await _repository.softDeleteTransaction(transaction.id);
+      await _reload(householdId: transaction.householdId);
+      _message(
+        'Lançamento removido.',
+        action: 'Desfazer',
+        onAction: () => _restoreTransaction(transaction),
+      );
+    } catch (_) {
+      _message('Não foi possível remover o lançamento.');
+    }
+  }
+
+  Future<void> _restoreTransaction(FinanceTransaction transaction) async {
+    try {
+      await _repository.restoreTransaction(transaction.id);
+      await _reload(householdId: transaction.householdId);
+      _message('Lançamento restaurado.');
+    } catch (_) {
+      _message('Não foi possível desfazer a remoção.');
+    }
+  }
+
+  Future<void> _duplicateTransaction(FinanceTransaction transaction) async {
+    try {
+      await _repository.duplicateTransaction(transaction);
+      await _reload(householdId: transaction.householdId);
+      _message('Lançamento duplicado.');
+    } catch (_) {
+      _message('Não foi possível duplicar o lançamento.');
+    }
+  }
+
+  bool _canQuickAdd(FinancaSnapshot snapshot) {
+    final role = _memberForCurrentUser(snapshot)?.role;
+    return role == 'owner' || role == 'adult' || role == 'teen';
+  }
+
+  bool _canCreateCategory(FinancaSnapshot snapshot) {
+    final role = _memberForCurrentUser(snapshot)?.role;
+    return role == 'owner' || role == 'adult';
+  }
+
+  bool _canModifyTransaction(
+    FinancaSnapshot snapshot,
+    FinanceTransaction transaction,
+  ) {
+    final member = _memberForCurrentUser(snapshot);
+    if (member?.role == 'owner' || member?.role == 'adult') return true;
+    return member?.role == 'teen' && transaction.memberId == member?.id;
+  }
+
+  void _message(String text, {String? action, VoidCallback? onAction}) {
+    if (!mounted) return;
+    final snackAction = action == null || onAction == null
+        ? null
+        : SnackBarAction(label: action, onPressed: onAction);
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(text), action: snackAction));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final snapshot = _snapshot;
+    if (_loading && snapshot == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    final error = _error;
+    if (error != null && snapshot == null) {
+      return _ErrorScreen(error: error, onRetry: _reload);
+    }
+    if (snapshot == null) return const SizedBox.shrink();
+
+    final body = switch (_tab) {
+      0 => _OverviewTab(
+        snapshot: snapshot,
+        month: _month,
+        memberScope: _memberScope,
+        privateValues: _privateValues,
+        onPreviousMonth: () => _changeMonth(-1),
+        onNextMonth: () => _changeMonth(1),
+        onScope: _selectScope,
+        onTogglePrivacy: _togglePrivacy,
+        onRefresh: () => _reload(householdId: snapshot.selectedHousehold.id),
+        onOpenTransactions: () => _selectTab(1),
+      ),
+      1 => _TransactionsTab(
+        snapshot: snapshot,
+        memberScope: _memberScope,
+        onScope: _selectScope,
+        canModify: (transaction) =>
+            _canModifyTransaction(snapshot, transaction),
+        onDelete: _deleteTransaction,
+        onDuplicate: _duplicateTransaction,
+      ),
+      2 => _ReportsTab(
+        snapshot: snapshot,
+        month: _month,
+        memberScope: _memberScope,
+      ),
+      _ => _MoreTab(
+        snapshot: snapshot,
+        repository: _repository,
+        onChanged: () => _reload(householdId: snapshot.selectedHousehold.id),
+      ),
+    };
+
+    return AppScaffold(
+      selectedIndex: _tab,
+      onSelected: _selectTab,
+      onQuickAdd: _openQuickAdd,
+      canQuickAdd: _canQuickAdd(snapshot),
+      profileName: _displayName(snapshot.profile.displayName, fallback: 'Você'),
+      householdName: snapshot.selectedHousehold.name,
+      onHouseholdTap: _selectHousehold,
+      onLogout: () => Supabase.instance.client.auth.signOut(),
+      syncLabel: _loading ? 'Sincronizando…' : 'Sincronizado agora',
+      body: body,
     );
   }
 }
 
-class _Header extends StatelessWidget {
-  const _Header({required this.onQuickAdd});
-  final VoidCallback onQuickAdd;
+class _OverviewTab extends StatelessWidget {
+  const _OverviewTab({
+    required this.snapshot,
+    required this.month,
+    required this.memberScope,
+    required this.privateValues,
+    required this.onPreviousMonth,
+    required this.onNextMonth,
+    required this.onScope,
+    required this.onTogglePrivacy,
+    required this.onRefresh,
+    required this.onOpenTransactions,
+  });
+  final FinancaSnapshot snapshot;
+  final DateTime month;
+  final String? memberScope;
+  final bool privateValues;
+  final VoidCallback onPreviousMonth;
+  final VoidCallback onNextMonth;
+  final VoidCallback onScope;
+  final VoidCallback onTogglePrivacy;
+  final Future<void> Function() onRefresh;
+  final VoidCallback onOpenTransactions;
 
   @override
   Widget build(BuildContext context) {
-    final compact = MediaQuery.sizeOf(context).width < 500;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Bom dia, Jesus',
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  Icon(
-                    Icons.home_work_outlined,
-                    size: 15,
-                    color: context.colors.inkMuted,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Casa Neurelix',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                  const SizedBox(width: 8),
-                  Container(
-                    width: 5,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: context.colors.brand,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Tudo salvo',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: context.colors.brand,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        if (!compact)
-          FilledButton.icon(
-            onPressed: onQuickAdd,
-            icon: const Icon(Icons.add_rounded),
-            label: const Text('Nova entrada'),
-          )
-        else
-          IconButton.filled(
-            onPressed: onQuickAdd,
-            icon: const Icon(Icons.add_rounded),
-            tooltip: 'Nova entrada',
-          ),
-      ],
-    );
-  }
-}
+    final transactions = snapshot.transactions.where((item) {
+      return item.occurredAt.year == month.year &&
+          item.occurredAt.month == month.month &&
+          (memberScope == null || item.memberId == memberScope);
+    }).toList();
+    final income = transactions
+        .where((item) => item.kind == 'income')
+        .fold<int>(0, (sum, item) => sum + item.amountCents);
+    final expense = transactions
+        .where((item) => item.kind == 'expense')
+        .fold<int>(0, (sum, item) => sum + item.amountCents);
+    final scopedMember = memberScope == null
+        ? null
+        : snapshot.memberships
+              .where((item) => item.id == memberScope)
+              .firstOrNull;
+    final scopeName = memberScope == null
+        ? 'Casa inteira'
+        : _displayName(scopedMember?.displayName, fallback: 'Membro');
+    final comparisonMembers = memberScope == null
+        ? snapshot.memberships
+        : snapshot.memberships
+              .where((member) => member.id == memberScope)
+              .toList();
 
-class _MonthNavigator extends StatelessWidget {
-  const _MonthNavigator();
-
-  @override
-  Widget build(BuildContext context) {
-    final compact = MediaQuery.sizeOf(context).width < 380;
-    if (compact) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              IconButton(
-                onPressed: () {},
-                icon: const Icon(Icons.chevron_left_rounded),
-                tooltip: 'Mês anterior',
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      child: CustomScrollView(
+        slivers: [
+          SliverToBoxAdapter(
+            child: _PageHeader(
+              eyebrow: snapshot.selectedHousehold.name,
+              title:
+                  'Olá, ${_displayName(snapshot.profile.displayName, fallback: 'Você')}',
+              subtitle: 'Uma visão clara do que aconteceu, sem julgamento.',
+              trailing: IconButton(
+                onPressed: onTogglePrivacy,
+                tooltip: privateValues ? 'Mostrar valores' : 'Ocultar valores',
+                icon: Icon(
+                  privateValues
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
+                ),
               ),
-              Text(
-                'Agosto 2026',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              IconButton(
-                onPressed: () {},
-                icon: const Icon(Icons.chevron_right_rounded),
-                tooltip: 'Próximo mês',
-              ),
-            ],
+            ),
           ),
-          Align(
-            alignment: Alignment.centerRight,
-            child: OutlinedButton.icon(
-              onPressed: () {},
-              icon: const Icon(Icons.tune_rounded, size: 17),
-              label: const Text('Casa inteira'),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              0,
+              AppSpacing.lg,
+              100,
+            ),
+            sliver: SliverList.list(
+              children: [
+                Wrap(
+                  spacing: AppSpacing.sm,
+                  runSpacing: AppSpacing.sm,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    IconButton(
+                      onPressed: onPreviousMonth,
+                      tooltip: 'Mês anterior',
+                      icon: const Icon(Icons.chevron_left_rounded),
+                    ),
+                    Text(
+                      _monthLabel(month),
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    IconButton(
+                      onPressed: onNextMonth,
+                      tooltip: 'Próximo mês',
+                      icon: const Icon(Icons.chevron_right_rounded),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: onScope,
+                      icon: const Icon(Icons.filter_alt_outlined),
+                      label: Text(scopeName),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.xl),
+                _BalanceStrip(
+                  balance: income - expense,
+                  income: income,
+                  expense: expense,
+                  hidden: privateValues,
+                ),
+                const SizedBox(height: AppSpacing.xl),
+                _SectionTitle(
+                  title: memberScope == null
+                      ? 'Contribuições da Casa'
+                      : 'Movimento de $scopeName',
+                  subtitle: 'Valores factuais do mês selecionado.',
+                ),
+                const SizedBox(height: AppSpacing.md),
+                if (transactions.isEmpty)
+                  const _EmptyState(
+                    icon: Icons.edit_note_rounded,
+                    title: 'Nenhum lançamento neste recorte',
+                    description:
+                        'Use o botão + para registrar a primeira movimentação.',
+                  )
+                else
+                  _MemberComparison(
+                    members: comparisonMembers,
+                    transactions: transactions,
+                    hidden: privateValues,
+                  ),
+                const SizedBox(height: AppSpacing.xl),
+                _SectionTitle(
+                  title: 'Últimos lançamentos',
+                  action: TextButton(
+                    onPressed: onOpenTransactions,
+                    child: const Text('Abrir extrato'),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                for (final item in transactions.take(5))
+                  _TransactionTile(
+                    transaction: item,
+                    snapshot: snapshot,
+                    hidden: privateValues,
+                  ),
+              ],
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _TransactionsTab extends StatelessWidget {
+  const _TransactionsTab({
+    required this.snapshot,
+    required this.memberScope,
+    required this.canModify,
+    required this.onScope,
+    required this.onDelete,
+    required this.onDuplicate,
+  });
+  final FinancaSnapshot snapshot;
+  final String? memberScope;
+  final bool Function(FinanceTransaction transaction) canModify;
+  final VoidCallback onScope;
+  final Future<void> Function(FinanceTransaction transaction) onDelete;
+  final Future<void> Function(FinanceTransaction transaction) onDuplicate;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = snapshot.transactions
+        .where((item) => memberScope == null || item.memberId == memberScope)
+        .toList();
+    return CustomScrollView(
+      slivers: [
+        SliverToBoxAdapter(
+          child: _PageHeader(
+            eyebrow: snapshot.selectedHousehold.name,
+            title: 'Extrato',
+            subtitle: 'Entradas, saídas e transferências em ordem.',
+            trailing: IconButton(
+              onPressed: onScope,
+              tooltip: 'Filtrar por membro',
+              icon: const Icon(Icons.filter_alt_outlined),
+            ),
+          ),
+        ),
+        if (items.isEmpty)
+          const SliverFillRemaining(
+            hasScrollBody: false,
+            child: _EmptyState(
+              icon: Icons.receipt_long_outlined,
+              title: 'Seu extrato está vazio',
+              description: 'O primeiro lançamento aparecerá aqui.',
+            ),
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              0,
+              AppSpacing.lg,
+              100,
+            ),
+            sliver: SliverList.builder(
+              itemCount: items.length,
+              itemBuilder: (context, index) {
+                final item = items[index];
+                if (!canModify(item)) {
+                  return _TransactionTile(
+                    transaction: item,
+                    snapshot: snapshot,
+                    hidden: false,
+                  );
+                }
+                return Dismissible(
+                  key: ValueKey(item.id),
+                  background: const _SwipeAction(
+                    alignment: Alignment.centerLeft,
+                    icon: Icons.copy_rounded,
+                    label: 'Duplicar',
+                  ),
+                  secondaryBackground: const _SwipeAction(
+                    alignment: Alignment.centerRight,
+                    icon: Icons.delete_outline_rounded,
+                    label: 'Remover',
+                  ),
+                  confirmDismiss: (direction) async {
+                    if (direction == DismissDirection.startToEnd) {
+                      await onDuplicate(item);
+                      return false;
+                    }
+                    return true;
+                  },
+                  onDismissed: (_) => unawaited(onDelete(item)),
+                  child: _TransactionTile(
+                    transaction: item,
+                    snapshot: snapshot,
+                    hidden: false,
+                  ),
+                );
+              },
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _ReportsTab extends StatelessWidget {
+  const _ReportsTab({
+    required this.snapshot,
+    required this.month,
+    required this.memberScope,
+  });
+  final FinancaSnapshot snapshot;
+  final DateTime month;
+  final String? memberScope;
+
+  @override
+  Widget build(BuildContext context) {
+    final expenses = <String, int>{};
+    for (final transaction in snapshot.transactions) {
+      if (transaction.kind != 'expense' ||
+          transaction.occurredAt.year != month.year ||
+          transaction.occurredAt.month != month.month ||
+          (memberScope != null && transaction.memberId != memberScope)) {
+        continue;
+      }
+      expenses.update(
+        transaction.memberId,
+        (value) => value + transaction.amountCents,
+        ifAbsent: () => transaction.amountCents,
       );
     }
-    return Row(
+    final total = expenses.values.fold<int>(0, (sum, value) => sum + value);
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 100),
       children: [
-        IconButton(
-          onPressed: () {},
-          icon: const Icon(Icons.chevron_left_rounded),
-          tooltip: 'Mês anterior',
+        const _PageHeader(
+          eyebrow: 'Comparativo',
+          title: 'Como a Casa contribuiu',
+          subtitle: 'Só fatos. A divisão ideal é uma decisão de vocês.',
         ),
-        Text('Agosto 2026', style: Theme.of(context).textTheme.titleMedium),
-        IconButton(
-          onPressed: () {},
-          icon: const Icon(Icons.chevron_right_rounded),
-          tooltip: 'Próximo mês',
-        ),
-        const Spacer(),
-        OutlinedButton.icon(
-          onPressed: () {},
-          icon: const Icon(Icons.tune_rounded, size: 17),
-          label: const Text('Casa inteira'),
+        Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Column(
+            children: [
+              if (total == 0)
+                const _EmptyState(
+                  icon: Icons.bar_chart_rounded,
+                  title: 'Ainda não há dados para comparar',
+                  description:
+                      'As despesas compartilhadas formarão este relatório.',
+                )
+              else
+                for (final member in snapshot.memberships.where(
+                  (member) => memberScope == null || member.id == memberScope,
+                ))
+                  _ContributionRow(
+                    name: _displayName(member.displayName),
+                    cents: expenses[member.id] ?? 0,
+                    total: total,
+                  ),
+            ],
+          ),
         ),
       ],
     );
   }
 }
 
-class _HeroBalance extends StatelessWidget {
-  const _HeroBalance({required this.privacy, required this.onPrivacyChanged});
-  final bool privacy;
-  final VoidCallback onPrivacyChanged;
+class _MoreTab extends StatefulWidget {
+  const _MoreTab({
+    required this.snapshot,
+    required this.repository,
+    required this.onChanged,
+  });
+  final FinancaSnapshot snapshot;
+  final FinancaRepository repository;
+  final Future<void> Function() onChanged;
+  @override
+  State<_MoreTab> createState() => _MoreTabState();
+}
 
+class _MoreTabState extends State<_MoreTab> {
+  Future<void> _invite() async {
+    final currentMember = _memberForCurrentUser(widget.snapshot);
+    if (currentMember?.role != 'owner') return;
+    try {
+      final code = await widget.repository.createInvite(
+        widget.snapshot.selectedHousehold.id,
+      );
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Código de convite'),
+          content: SelectableText(
+            code,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.headlineMedium,
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Concluir'),
+            ),
+          ],
+        ),
+      );
+    } catch (_) {
+      _showMessage('Não foi possível criar o convite.');
+    }
+  }
+
+  Future<void> _redeem() async {
+    final controller = TextEditingController();
+    String? code;
+    try {
+      code = await showDialog<String>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Entrar em uma Casa'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            textCapitalization: TextCapitalization.characters,
+            decoration: const InputDecoration(labelText: 'Código do convite'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, controller.text),
+              child: const Text('Entrar'),
+            ),
+          ],
+        ),
+      );
+    } catch (_) {
+      _showMessage('Não foi possível abrir o convite.');
+      return;
+    } finally {
+      controller.dispose();
+    }
+    if (code == null || code.trim().isEmpty) return;
+    try {
+      await widget.repository.redeemInvite(code);
+      await widget.onChanged();
+      if (!mounted) return;
+      _showMessage('Você entrou na Casa.');
+    } catch (_) {
+      _showMessage('Não foi possível usar esse convite.');
+    }
+  }
+
+  void _showMessage(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final currentUser = Supabase.instance.client.auth.currentUser?.id;
+    final currentMember = _memberForCurrentUser(widget.snapshot);
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 100),
+      children: [
+        _PageHeader(
+          eyebrow: widget.snapshot.selectedHousehold.name,
+          title: 'Casa e preferências',
+          subtitle: 'Pessoas, papéis e acesso ao workspace.',
+        ),
+        Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('Pessoas', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: AppSpacing.sm),
+              for (final member in widget.snapshot.memberships)
+                ListTile(
+                  leading: CircleAvatar(
+                    child: Text(
+                      _displayName(member.displayName)[0].toUpperCase(),
+                    ),
+                  ),
+                  title: Text(_displayName(member.displayName)),
+                  subtitle: Text(_roleLabel(member.role)),
+                  trailing: member.userId == currentUser
+                      ? const Chip(label: Text('Você'))
+                      : null,
+                ),
+              const SizedBox(height: AppSpacing.lg),
+              if (currentMember?.role == 'owner')
+                FilledButton.icon(
+                  onPressed: _invite,
+                  icon: const Icon(Icons.person_add_alt_1_rounded),
+                  label: const Text('Convidar pessoa'),
+                ),
+              const SizedBox(height: AppSpacing.sm),
+              OutlinedButton.icon(
+                onPressed: _redeem,
+                icon: const Icon(Icons.login_rounded),
+                label: const Text('Usar código de convite'),
+              ),
+              const SizedBox(height: AppSpacing.xl),
+              OutlinedButton.icon(
+                onPressed: () => Supabase.instance.client.auth.signOut(),
+                icon: const Icon(Icons.logout_rounded),
+                label: const Text('Sair da conta'),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PageHeader extends StatelessWidget {
+  const _PageHeader({
+    required this.eyebrow,
+    required this.title,
+    required this.subtitle,
+    this.trailing,
+  });
+  final String eyebrow;
+  final String title;
+  final String subtitle;
+  final Widget? trailing;
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        AppSpacing.xl,
+        AppSpacing.lg,
+        AppSpacing.xl,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(eyebrow, style: Theme.of(context).textTheme.labelMedium),
+                const SizedBox(height: AppSpacing.xs),
+                Text(title, style: Theme.of(context).textTheme.headlineSmall),
+                const SizedBox(height: AppSpacing.xs),
+                Text(subtitle),
+              ],
+            ),
+          ),
+          ?trailing,
+        ],
+      ),
+    );
+  }
+}
+
+class _BalanceStrip extends StatelessWidget {
+  const _BalanceStrip({
+    required this.balance,
+    required this.income,
+    required this.expense,
+    required this.hidden,
+  });
+  final int balance;
+  final int income;
+  final int expense;
+  final bool hidden;
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: context.colors.brand,
-        borderRadius: const BorderRadius.all(Radius.circular(24)),
+        color: context.colors.surface,
+        border: Border.all(color: context.colors.line),
+        borderRadius: AppRadii.medium,
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 22, 22, 22),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        child: Wrap(
+          spacing: AppSpacing.xxl,
+          runSpacing: AppSpacing.lg,
           children: [
-            Row(
-              children: [
-                Text(
-                  'Saldo do mês',
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.78),
-                  ),
-                ),
-                const Spacer(),
-                IconButton(
-                  onPressed: onPrivacyChanged,
-                  tooltip: privacy ? 'Mostrar valores' : 'Esconder valores',
-                  icon: Icon(
-                    privacy
-                        ? Icons.visibility_off_rounded
-                        : Icons.visibility_rounded,
-                    color: Colors.white,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            MoneyText(
-              184760,
-              privacy: privacy,
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                color: Colors.white,
-                fontSize: 34,
-                letterSpacing: -1,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Entradas menos saídas · até hoje',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Colors.white.withValues(alpha: 0.78),
-              ),
-            ),
-            const SizedBox(height: 22),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(99),
-              child: LinearProgressIndicator(
-                value: 0.68,
-                minHeight: 7,
-                backgroundColor: Colors.white.withValues(alpha: 0.2),
-                color: Colors.white,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Text(
-                  '68% do mês transcorrido',
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.78),
-                  ),
-                ),
-                const Spacer(),
-                Text(
-                  'Dentro do ritmo',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.labelMedium?.copyWith(color: Colors.white),
-                ),
-              ],
-            ),
+            _Metric(label: 'Saldo do mês', cents: balance, hidden: hidden),
+            _Metric(label: 'Entradas', cents: income, hidden: hidden),
+            _Metric(label: 'Saídas', cents: -expense, hidden: hidden),
           ],
         ),
       ),
@@ -404,587 +941,174 @@ class _HeroBalance extends StatelessWidget {
   }
 }
 
-class _StatsRow extends StatelessWidget {
-  const _StatsRow({required this.privacy});
-  final bool privacy;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: _StatCard(
-            label: 'Entradas',
-            cents: 680000,
-            change: '+12%',
-            income: true,
-            privacy: privacy,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _StatCard(
-            label: 'Saídas',
-            cents: 495240,
-            change: '-4%',
-            income: false,
-            privacy: privacy,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _StatCard extends StatelessWidget {
-  const _StatCard({
+class _Metric extends StatelessWidget {
+  const _Metric({
     required this.label,
     required this.cents,
-    required this.change,
-    required this.income,
-    required this.privacy,
+    required this.hidden,
   });
   final String label;
   final int cents;
-  final String change;
-  final bool income;
-  final bool privacy;
-
+  final bool hidden;
   @override
   Widget build(BuildContext context) {
-    final color = income ? context.colors.income : context.colors.expense;
-    final narrow = MediaQuery.sizeOf(context).width < 380;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: context.colors.surfaceRaised,
-        borderRadius: const BorderRadius.all(Radius.circular(16)),
-        border: Border.all(color: context.colors.line),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
+    return Semantics(
+      label: hidden ? '$label oculto' : label,
+      child: SizedBox(
+        width: 190,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Icon(
-                  income ? Icons.south_west_rounded : Icons.north_east_rounded,
-                  size: 17,
-                  color: color,
-                ),
-                const SizedBox(width: 7),
-                Expanded(
-                  child: Text(
-                    label,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodyMedium,
+            Text(label, style: Theme.of(context).textTheme.labelMedium),
+            const SizedBox(height: AppSpacing.xs),
+            if (hidden)
+              Text('••••••', style: Theme.of(context).textTheme.headlineSmall)
+            else
+              MoneyText(
+                cents,
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MemberComparison extends StatelessWidget {
+  const _MemberComparison({
+    required this.members,
+    required this.transactions,
+    required this.hidden,
+  });
+  final List<HouseholdMember> members;
+  final List<FinanceTransaction> transactions;
+  final bool hidden;
+  @override
+  Widget build(BuildContext context) {
+    final totals = <String, int>{};
+    for (final item in transactions.where((item) => item.kind == 'expense')) {
+      totals.update(
+        item.memberId,
+        (value) => value + item.amountCents,
+        ifAbsent: () => item.amountCents,
+      );
+    }
+    final max = totals.values.fold<int>(1, (a, b) => a > b ? a : b);
+    return Column(
+      children: [
+        for (final member in members)
+          Semantics(
+            label:
+                '${_displayName(member.displayName)}, ${((totals[member.id] ?? 0) / max * 100).round()} por cento da maior contribuição',
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.md),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 100,
+                    child: Text(_displayName(member.displayName)),
                   ),
-                ),
-                if (!narrow) ...[
-                  const SizedBox(width: 6),
-                  Text(
-                    change,
-                    style: Theme.of(
-                      context,
-                    ).textTheme.labelMedium?.copyWith(color: color),
+                  Expanded(
+                    child: LinearProgressIndicator(
+                      value: (totals[member.id] ?? 0) / max,
+                      minHeight: 10,
+                      borderRadius: AppRadii.pill,
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  SizedBox(
+                    width: 100,
+                    child: hidden
+                        ? const Text('••••')
+                        : MoneyText(-(totals[member.id] ?? 0)),
                   ),
                 ],
-              ],
-            ),
-            if (narrow)
-              Align(
-                alignment: Alignment.centerRight,
-                child: Text(
-                  change,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.labelMedium?.copyWith(color: color),
-                ),
               ),
-            const SizedBox(height: 10),
-            MoneyText(
-              cents,
-              privacy: privacy,
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge?.copyWith(color: color),
             ),
-            const SizedBox(height: 4),
-            Text(
-              'vs. média de 3 meses',
-              style: Theme.of(context).textTheme.labelMedium,
-            ),
-          ],
-        ),
-      ),
+          ),
+      ],
     );
   }
 }
 
-class _ComparisonSection extends StatelessWidget {
-  const _ComparisonSection({required this.privacy});
-  final bool privacy;
-
+class _TransactionTile extends StatelessWidget {
+  const _TransactionTile({
+    required this.transaction,
+    required this.snapshot,
+    required this.hidden,
+  });
+  final FinanceTransaction transaction;
+  final FinancaSnapshot snapshot;
+  final bool hidden;
   @override
   Widget build(BuildContext context) {
-    return _SectionCard(
-      title: 'Como a casa está andando',
-      subtitle: 'Despesas comuns, sem cobrança',
-      trailing: TextButton(onPressed: () {}, child: const Text('Detalhes')),
-      child: Column(
-        children: [
-          _MemberBar(
-            name: 'Jesus',
-            amount: 302000,
-            total: 410000,
-            color: context.colors.brand,
-            privacy: privacy,
-          ),
-          const SizedBox(height: 16),
-          _MemberBar(
-            name: 'Maria',
-            amount: 222000,
-            total: 410000,
-            color: context.colors.coral,
-            privacy: privacy,
-          ),
-          const SizedBox(height: 18),
-          Row(
-            children: [
-              Icon(
-                Icons.handshake_outlined,
-                size: 18,
-                color: context.colors.inkMuted,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Contribuição equilibrada este mês.',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-              ),
-            ],
-          ),
-        ],
+    final category = snapshot.categories
+        .where((item) => item.id == transaction.categoryId)
+        .firstOrNull;
+    final member = snapshot.memberships
+        .where((item) => item.id == transaction.memberId)
+        .firstOrNull;
+    final income = transaction.kind == 'income';
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.xs,
       ),
+      leading: CircleAvatar(
+        backgroundColor: income
+            ? context.colors.incomeSoft
+            : context.colors.expenseSoft,
+        child: Icon(
+          income ? Icons.south_west_rounded : Icons.north_east_rounded,
+          color: income ? context.colors.income : context.colors.expense,
+        ),
+      ),
+      title: Text(transaction.description ?? category?.name ?? 'Sem descrição'),
+      subtitle: Text(
+        '${_displayName(member?.displayName, fallback: 'Casa')} · ${_dateLabel(transaction.occurredAt)}'
+        '${transaction.receiptId == null ? '' : ' · recibo'}',
+      ),
+      trailing: hidden
+          ? const Text('••••')
+          : MoneyText(transaction.signedAmountCents),
     );
   }
 }
 
-class _MemberBar extends StatelessWidget {
-  const _MemberBar({
+class _ContributionRow extends StatelessWidget {
+  const _ContributionRow({
     required this.name,
-    required this.amount,
+    required this.cents,
     required this.total,
-    required this.color,
-    required this.privacy,
   });
   final String name;
-  final int amount;
+  final int cents;
   final int total;
-  final Color color;
-  final bool privacy;
-
   @override
   Widget build(BuildContext context) {
-    final ratio = amount / total;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            CircleAvatar(
-              radius: 12,
-              backgroundColor: color.withValues(alpha: 0.2),
-              child: Text(
-                name.substring(0, 1),
-                style: TextStyle(
-                  color: color,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Text(name, style: Theme.of(context).textTheme.labelLarge),
-            const Spacer(),
-            MoneyText(amount, privacy: privacy, compact: true),
-          ],
-        ),
-        const SizedBox(height: 8),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(99),
-          child: LinearProgressIndicator(
-            value: ratio,
-            minHeight: 8,
-            backgroundColor: context.colors.canvas,
-            color: color,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _BudgetSection extends StatelessWidget {
-  const _BudgetSection({required this.privacy});
-  final bool privacy;
-
-  @override
-  Widget build(BuildContext context) {
-    return _SectionCard(
-      title: 'Orçamentos em atenção',
-      subtitle: 'Só aparece o que pede cuidado',
-      child: Column(
-        children: [
-          _BudgetRow(
-            name: 'Mercado',
-            spent: 47200,
-            limit: 60000,
-            privacy: privacy,
-          ),
-          const SizedBox(height: 18),
-          _BudgetRow(
-            name: 'Transporte',
-            spent: 31000,
-            limit: 35000,
-            privacy: privacy,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _BudgetRow extends StatelessWidget {
-  const _BudgetRow({
-    required this.name,
-    required this.spent,
-    required this.limit,
-    required this.privacy,
-  });
-  final String name;
-  final int spent;
-  final int limit;
-  final bool privacy;
-
-  @override
-  Widget build(BuildContext context) {
-    final ratio = spent / limit;
-    final color = ratio > .85 ? context.colors.warning : context.colors.brand;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Text(name, style: Theme.of(context).textTheme.labelLarge),
-            const Spacer(),
-            MoneyText(spent, privacy: privacy, compact: true),
-            Text(' / ', style: Theme.of(context).textTheme.bodyMedium),
-            MoneyText(limit, privacy: privacy, compact: true),
-          ],
-        ),
-        const SizedBox(height: 8),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(99),
-          child: LinearProgressIndicator(
-            value: ratio,
-            minHeight: 7,
-            backgroundColor: context.colors.canvas,
-            color: color,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _UpcomingSection extends StatelessWidget {
-  const _UpcomingSection({required this.privacy});
-  final bool privacy;
-
-  @override
-  Widget build(BuildContext context) {
-    return _SectionCard(
-      title: 'Próximas contas',
-      subtitle: 'Próximos 7 dias',
-      child: Column(
-        children: [
-          _UpcomingRow(
-            name: 'Aluguel',
-            date: '05 ago',
-            amount: 180000,
-            privacy: privacy,
-          ),
-          const SizedBox(height: 12),
-          _UpcomingRow(
-            name: 'Internet',
-            date: '07 ago',
-            amount: 9990,
-            privacy: privacy,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _UpcomingRow extends StatelessWidget {
-  const _UpcomingRow({
-    required this.name,
-    required this.date,
-    required this.amount,
-    required this.privacy,
-  });
-  final String name;
-  final String date;
-  final int amount;
-  final bool privacy;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            color: context.colors.warningSoft,
-            borderRadius: const BorderRadius.all(Radius.circular(11)),
-          ),
-          child: Icon(
-            Icons.calendar_month_rounded,
-            size: 19,
-            color: context.colors.warning,
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(name, style: Theme.of(context).textTheme.labelLarge),
-              Text(
-                'vence $date',
-                style: Theme.of(context).textTheme.labelMedium,
-              ),
-            ],
-          ),
-        ),
-        MoneyText(amount, privacy: privacy, compact: true),
-        const SizedBox(width: 10),
-        OutlinedButton(onPressed: () {}, child: const Text('Pagar')),
-      ],
-    );
-  }
-}
-
-class _AccountsSection extends StatelessWidget {
-  const _AccountsSection({required this.privacy});
-  final bool privacy;
-
-  @override
-  Widget build(BuildContext context) {
-    return _SectionCard(
-      title: 'Contas e saldos',
-      subtitle: 'Disponível agora',
-      child: Row(
-        children: [
-          Expanded(
-            child: _AccountTile(
-              name: 'Nubank',
-              type: 'Conta corrente',
-              amount: 184760,
-              color: context.colors.brand,
-              privacy: privacy,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: _AccountTile(
-              name: 'Carteira',
-              type: 'Dinheiro',
-              amount: 32000,
-              color: context.colors.lilac,
-              privacy: privacy,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _AccountTile extends StatelessWidget {
-  const _AccountTile({
-    required this.name,
-    required this.type,
-    required this.amount,
-    required this.color,
-    required this.privacy,
-  });
-  final String name;
-  final String type;
-  final int amount;
-  final Color color;
-  final bool privacy;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: const BorderRadius.all(Radius.circular(15)),
-      ),
+    final percentage = total == 0 ? 0.0 : cents / total;
+    return Semantics(
+      label: '$name, ${(percentage * 100).round()} por cento das despesas',
       child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(Icons.account_balance_rounded, size: 18, color: color),
-            const SizedBox(height: 14),
-            Text(name, style: Theme.of(context).textTheme.labelLarge),
-            Text(type, style: Theme.of(context).textTheme.labelMedium),
-            const SizedBox(height: 8),
-            MoneyText(amount, privacy: privacy, compact: true),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RecentSection extends StatelessWidget {
-  const _RecentSection({required this.privacy, required this.transactions});
-  final bool privacy;
-  final List<_TransactionData> transactions;
-
-  @override
-  Widget build(BuildContext context) {
-    return _SectionCard(
-      title: 'Últimos lançamentos',
-      subtitle: 'Atualizado agora',
-      trailing: TextButton(onPressed: () {}, child: const Text('Ver tudo')),
-      child: Column(
-        children: transactions
-            .take(5)
-            .map(
-              (transaction) => Padding(
-                padding: const EdgeInsets.only(bottom: 14),
-                child: _TransactionRow(
-                  transaction: transaction,
-                  privacy: privacy,
-                ),
-              ),
-            )
-            .toList(),
-      ),
-    );
-  }
-}
-
-class _TransactionRow extends StatelessWidget {
-  const _TransactionRow({required this.transaction, required this.privacy});
-  final _TransactionData transaction;
-  final bool privacy;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = transaction.income
-        ? context.colors.income
-        : context.colors.expense;
-    return Row(
-      children: [
-        Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.12),
-            borderRadius: const BorderRadius.all(Radius.circular(13)),
-          ),
-          child: Icon(transaction.icon, size: 19, color: color),
-        ),
-        const SizedBox(width: 11),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                transaction.name,
-                style: Theme.of(context).textTheme.labelLarge,
-              ),
-              Text(
-                '${transaction.category} · ${transaction.date}',
-                style: Theme.of(context).textTheme.labelMedium,
-              ),
-            ],
-          ),
-        ),
-        Text(
-          transaction.income ? '+' : '−',
-          style: Theme.of(context).textTheme.labelLarge?.copyWith(color: color),
-        ),
-        const SizedBox(width: 4),
-        MoneyText(
-          transaction.amount,
-          privacy: privacy,
-          compact: true,
-          color: color,
-        ),
-      ],
-    );
-  }
-}
-
-class _SectionCard extends StatelessWidget {
-  const _SectionCard({
-    required this.title,
-    required this.subtitle,
-    required this.child,
-    this.trailing,
-  });
-  final String title;
-  final String subtitle;
-  final Widget child;
-  final Widget? trailing;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: context.colors.surfaceRaised,
-        borderRadius: const BorderRadius.all(Radius.circular(20)),
-        border: Border.all(color: context.colors.line),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.only(bottom: AppSpacing.lg),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        subtitle,
-                        style: Theme.of(context).textTheme.labelMedium,
-                      ),
-                    ],
-                  ),
-                ),
-                ?trailing,
+                Expanded(child: Text(name)),
+                MoneyText(-cents),
+                const SizedBox(width: AppSpacing.sm),
+                Text('${(percentage * 100).round()}%'),
               ],
             ),
-            const SizedBox(height: 18),
-            child,
+            const SizedBox(height: AppSpacing.sm),
+            LinearProgressIndicator(
+              value: percentage,
+              minHeight: 12,
+              borderRadius: AppRadii.pill,
+            ),
           ],
         ),
       ),
@@ -992,41 +1116,54 @@ class _SectionCard extends StatelessWidget {
   }
 }
 
-class _PlaceholderContent extends StatelessWidget {
-  const _PlaceholderContent({required this.index, required this.onQuickAdd});
-  final int index;
-  final VoidCallback onQuickAdd;
-
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle({required this.title, this.subtitle, this.action});
+  final String title;
+  final String? subtitle;
+  final Widget? action;
   @override
   Widget build(BuildContext context) {
-    const labels = ['Início', 'Extrato', 'Relatórios', 'Mais'];
+    final subtitleText = subtitle;
+    final subtitleWidget = subtitleText == null ? null : Text(subtitleText);
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: Theme.of(context).textTheme.titleLarge),
+              ?subtitleWidget,
+            ],
+          ),
+        ),
+        ?action,
+      ],
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({
+    required this.icon,
+    required this.title,
+    required this.description,
+  });
+  final IconData icon;
+  final String title;
+  final String description;
+  @override
+  Widget build(BuildContext context) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(AppSpacing.xxl),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.construction_rounded,
-              size: 42,
-              color: context.colors.brand,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              labels[index],
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Esta área entra na próxima etapa do produto.',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 20),
-            FilledButton.icon(
-              onPressed: onQuickAdd,
-              icon: const Icon(Icons.add_rounded),
-              label: const Text('Registrar lançamento'),
-            ),
+            Icon(icon, size: 42, color: context.colors.inkFaint),
+            const SizedBox(height: AppSpacing.md),
+            Text(title, style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: AppSpacing.xs),
+            Text(description, textAlign: TextAlign.center),
           ],
         ),
       ),
@@ -1034,19 +1171,92 @@ class _PlaceholderContent extends StatelessWidget {
   }
 }
 
-class _TransactionData {
-  const _TransactionData(
-    this.name,
-    this.category,
-    this.icon,
-    this.amount,
-    this.income,
-    this.date,
-  );
-  final String name;
-  final String category;
+class _SwipeAction extends StatelessWidget {
+  const _SwipeAction({
+    required this.alignment,
+    required this.icon,
+    required this.label,
+  });
+  final Alignment alignment;
   final IconData icon;
-  final int amount;
-  final bool income;
-  final String date;
+  final String label;
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      alignment: alignment,
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+      color: context.colors.surfaceRaised,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon),
+          const SizedBox(width: AppSpacing.sm),
+          Text(label),
+        ],
+      ),
+    );
+  }
 }
+
+class _ErrorScreen extends StatelessWidget {
+  const _ErrorScreen({required this.error, required this.onRetry});
+  final Object error;
+  final Future<void> Function({String? householdId}) onRetry;
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: _EmptyState(
+        icon: Icons.cloud_off_rounded,
+        title: 'Não foi possível carregar',
+        description: '$error',
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => onRetry(),
+        icon: const Icon(Icons.refresh_rounded),
+        label: const Text('Tentar novamente'),
+      ),
+    );
+  }
+}
+
+HouseholdMember? _memberForCurrentUser(FinancaSnapshot snapshot) {
+  final userId = Supabase.instance.client.auth.currentUser?.id;
+  if (userId == null) return null;
+  return snapshot.memberships
+      .where((item) => item.userId == userId)
+      .firstOrNull;
+}
+
+String _displayName(String? value, {String fallback = 'Membro'}) {
+  final trimmed = value?.trim() ?? '';
+  return trimmed.isEmpty ? fallback : trimmed;
+}
+
+String _monthLabel(DateTime date) {
+  const months = [
+    'janeiro',
+    'fevereiro',
+    'março',
+    'abril',
+    'maio',
+    'junho',
+    'julho',
+    'agosto',
+    'setembro',
+    'outubro',
+    'novembro',
+    'dezembro',
+  ];
+  return '${months[date.month - 1]} de ${date.year}';
+}
+
+String _dateLabel(DateTime date) =>
+    '${date.day.toString().padLeft(2, '0')}/'
+    '${date.month.toString().padLeft(2, '0')}/${date.year}';
+
+String _roleLabel(String role) => switch (role) {
+  'owner' => 'Dono da Casa',
+  'teen' => 'Adolescente',
+  'viewer' => 'Somente leitura',
+  _ => 'Adulto',
+};
